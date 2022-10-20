@@ -102,7 +102,7 @@ pub fn install() -> windows_service::Result<()> {
     };
     let service = service_manager.create_service(&service_info, ServiceAccess::CHANGE_CONFIG)?;
     service.set_description(SERVICE_DESC)?;
-    start()?;
+    //start()?;
     Ok(())
 }
 
@@ -111,7 +111,7 @@ pub fn uninstall() -> windows_service::Result<()> {
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
 
     let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
-    let service = service_manager.open_service("rtest", service_access)?;
+    let service = service_manager.open_service(super::SERVICE_NAME, service_access)?;
 
     let service_status = service.query_status()?;
     if service_status.current_state != ServiceState::Stopped {

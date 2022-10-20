@@ -1,10 +1,15 @@
+use std::process::Child;
+use std::process::Command;
 use std::sync::mpsc::Receiver;
+use std::thread;
+use std::thread::JoinHandle;
 use std::{
     ffi::OsString,
     net::{IpAddr, SocketAddr, UdpSocket},
     sync::mpsc,
     time::Duration,
 };
+
 use windows_service::{
     define_windows_service,
     service::{
@@ -48,6 +53,49 @@ enum StatusMessage<T> {
     Continue(T),
     Pause(T),
     Stop(T),
+}
+struct ChildProcess {
+    program: String,
+    args: Vec<String>,
+    workdir: Option<String>,
+    child: Option<Child>,
+}
+
+impl ChildProcess {
+    fn new(program: String, args: Vec<String>) -> ChildProcess {
+        ChildProcess {
+            program,
+            args,
+            workdir: None,
+            child: None,
+        }
+    }
+
+    fn start(&mut self) {
+        self.child = match Command::new(&self.program).args(&self.args).spawn() {
+            Ok(child) => Some(child),
+            Err(err) => panic!("{:?}", err),
+        };
+    }
+
+    fn autorestart(&mut self) {
+        loop {
+            match self.child.as_mut().unwrap().wait() {
+                Ok(ok) => println!("Процесс завершился с кодом {:?}", ok),
+                Err(err) => println!(
+                    "Процесс завершился с ошибкой: {:?}. Его ждет перезапуск.",
+                    err
+                ),
+            };
+            self.start();
+        }
+    }
+}
+
+impl Drop for ChildProcess {
+    fn drop(&mut self) {
+        self.child.as_mut().unwrap().kill();
+    }
 }
 
 pub fn run_service() -> Result<()> {
@@ -123,8 +171,73 @@ fn run_main_loop(
     status_handle: ServiceStatusHandle,
     shutdown_rx: Receiver<StatusMessage<&str>>,
 ) -> windows_service::Result<()> {
+    let list = vec![
+        ChildProcess::new(
+            "php.exe".to_string(),
+            vec!["C:/Users/defilak/Desktop/rust/servicers/test/app1.php".to_string()],
+        ),
+        ChildProcess::new(
+            "php.exe".to_string(),
+            vec!["-S".to_string(), "localhost:8080".to_string()],
+        ),
+    ];
+
+    let mut threads = Vec::<JoinHandle<()>>::new();
+
+    for mut proc in list {
+        threads.push(thread::spawn(move || {
+            proc.start();
+            proc.autorestart();
+        }));
+    }
+
+    loop {
+        if threads.iter().all(|t| t.is_finished()) {
+            println!("all threads gone");
+            break;
+        }
+
+        match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(var) => match var {
+                StatusMessage::Interrogate(text) => {}
+                StatusMessage::Continue(text) => {
+                    status_handle.set_service_status(ServiceStatus {
+                        service_type: SERVICE_TYPE,
+                        current_state: ServiceState::Running,
+                        controls_accepted: ServiceControlAccept::STOP
+                            | ServiceControlAccept::PAUSE_CONTINUE,
+                        exit_code: ServiceExitCode::Win32(0),
+                        checkpoint: 0,
+                        wait_hint: Duration::default(),
+                        process_id: None,
+                    })?;
+                }
+                StatusMessage::Pause(text) => {
+                    status_handle.set_service_status(ServiceStatus {
+                        service_type: SERVICE_TYPE,
+                        current_state: ServiceState::Paused,
+                        controls_accepted: ServiceControlAccept::STOP
+                            | ServiceControlAccept::PAUSE_CONTINUE,
+                        exit_code: ServiceExitCode::Win32(0),
+                        checkpoint: 0,
+                        wait_hint: Duration::default(),
+                        process_id: None,
+                    })?;
+                }
+                StatusMessage::Stop(text) => {
+                    //threads.iter().all(|t| t.);
+                }
+            },
+            // Break the loop either upon stop or channel disconnect
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+
+            // Continue work if no events were received within the timeout
+            Err(mpsc::RecvTimeoutError::Timeout) => (),
+        }
+    }
+
     // For demo purposes this service sends a UDP packet once a second.
-    let loopback_ip = IpAddr::from(LOOPBACK_ADDR);
+    /*let loopback_ip = IpAddr::from(LOOPBACK_ADDR);
     let sender_addr = SocketAddr::new(loopback_ip, 0);
     let receiver_addr = SocketAddr::new(loopback_ip, RECEIVER_PORT);
     //let msg = PING_MESSAGE.as_bytes();
@@ -177,7 +290,7 @@ fn run_main_loop(
             // Continue work if no events were received within the timeout
             Err(mpsc::RecvTimeoutError::Timeout) => (),
         };
-    }
+    }*/
 
     Ok(())
 }
