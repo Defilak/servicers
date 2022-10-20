@@ -1,11 +1,11 @@
 use std::process::Child;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
-use std::sync::Mutex;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-/*
+/* 
 struct ChildProcess {
     program: String,
     args: Vec<String>,
@@ -36,7 +36,7 @@ impl ChildProcess {
         };
     }
 
-    fn autorestart(&mut self, shared: Arc<AtomicBool>) {
+    fn autorestart(&mut self, need_exit: Arc<AtomicBool>) {
         loop {
             match self.child.as_mut().unwrap().try_wait() {
                 Ok(Some(status)) => self.start(),
@@ -45,7 +45,11 @@ impl ChildProcess {
                 Err(e) => self.start(),
             };
 
-
+            if need_exit.load(Ordering::Relaxed) {
+                self.child.as_mut().unwrap().kill();
+                println!("kill proc");
+                break;
+            }
 
             /*match self.child.as_mut().unwrap().wait() {
                 Ok(ok) => println!("Процесс завершился с кодом {:?}", ok),
@@ -71,7 +75,7 @@ fn main() {
     ];
 
     //let arc = Arc::new(AtomicBool);//true is working
-    let atom = Arc::new(AtomicBool::new(true));
+    let atom = Arc::new(AtomicBool::new(false));
 
     let mut threads = Vec::<JoinHandle<()>>::new();
     for mut proc in list {
@@ -90,12 +94,10 @@ fn main() {
         thread::sleep(std::time::Duration::from_millis(100));
 
         thread::sleep(std::time::Duration::from_secs(20));
-
-        break;
+        atom.store(true, Ordering::Relaxed);
     }
-}
+}*/
 
-*/
 use std::env;
 
 mod control;
@@ -117,9 +119,7 @@ fn main() -> windows_service::Result<()> {
             "status" => control::status(),
             _ => Ok(()),
         },
-        None => {
-            monitor_service::run()
-        },
+        None => monitor_service::run(),
     }
 }
 

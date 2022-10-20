@@ -1,6 +1,8 @@
 use std::process::Child;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::{
@@ -78,23 +80,22 @@ impl ChildProcess {
         };
     }
 
-    fn autorestart(&mut self) {
+    fn autorestart(&mut self, need_exit: Arc<AtomicBool>) {
         loop {
-            match self.child.as_mut().unwrap().wait() {
-                Ok(ok) => println!("Процесс завершился с кодом {:?}", ok),
-                Err(err) => println!(
-                    "Процесс завершился с ошибкой: {:?}. Его ждет перезапуск.",
-                    err
-                ),
+            match self.child.as_mut().unwrap().try_wait() {
+                Ok(Some(status)) => self.start(),
+                Ok(None) => {}
+                Err(e) => self.start(),
             };
-            self.start();
-        }
-    }
-}
 
-impl Drop for ChildProcess {
-    fn drop(&mut self) {
-        self.child.as_mut().unwrap().kill();
+            if need_exit.load(Ordering::Relaxed) {
+                self.child.as_mut().unwrap().kill();
+                println!("kill proc");
+                break;
+            }
+
+            thread::sleep(Duration::from_millis(100));
+        }
     }
 }
 
@@ -109,26 +110,20 @@ pub fn run_service() -> Result<()> {
             // Уведомляет службу о необходимости сообщить службе информацию о текущем состоянии.
             // диспетчер управления. Всегда возвращайте NoError, даже если это не реализовано.
             ServiceControl::Interrogate => {
-                shutdown_tx
-                    .send(StatusMessage::Interrogate(ITTER_MESSAGE))
-                    .unwrap();
+                shutdown_tx.send(ServiceControl::Interrogate).unwrap();
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::Continue => {
-                shutdown_tx
-                    .send(StatusMessage::Continue(RESUME_MESSAGE))
-                    .unwrap();
+                shutdown_tx.send(ServiceControl::Continue).unwrap();
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::Pause => {
-                shutdown_tx
-                    .send(StatusMessage::Pause(PAUSED_MESSAGE))
-                    .unwrap();
+                shutdown_tx.send(ServiceControl::Pause).unwrap();
                 ServiceControlHandlerResult::NoError
             }
             // Handle stop
             ServiceControl::Stop => {
-                shutdown_tx.send(StatusMessage::Stop(STOP_MESSAGE)).unwrap();
+                shutdown_tx.send(ServiceControl::Stop).unwrap();
                 ServiceControlHandlerResult::NoError
             }
 
@@ -169,7 +164,7 @@ pub fn run_service() -> Result<()> {
 
 fn run_main_loop(
     status_handle: ServiceStatusHandle,
-    shutdown_rx: Receiver<StatusMessage<&str>>,
+    shutdown_rx: Receiver<ServiceControl>,
 ) -> windows_service::Result<()> {
     let list = vec![
         ChildProcess::new(
@@ -182,12 +177,18 @@ fn run_main_loop(
         ),
     ];
 
-    let mut threads = Vec::<JoinHandle<()>>::new();
+    // Атомарный потокобезопасный флажок обернутый в потокобезопасный strong счетчик ссылок.
+    // Видимо, подразумевается что он безопасно чистит память при выходе из блока. Интересно как.
+    // От родителя к потомку - Arc, обратно Weak. Написано, что иначе память потечет.
+    let need_exit_flag = Arc::new(AtomicBool::new(false));
 
+    let mut threads = Vec::<JoinHandle<()>>::new();
     for mut proc in list {
+        // Для каждого копирую ссылку
+        let shared = need_exit_flag.clone();
         threads.push(thread::spawn(move || {
             proc.start();
-            proc.autorestart();
+            proc.autorestart(shared);
         }));
     }
 
@@ -199,8 +200,8 @@ fn run_main_loop(
 
         match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(var) => match var {
-                StatusMessage::Interrogate(text) => {}
-                StatusMessage::Continue(text) => {
+                ServiceControl::Interrogate => {}
+                ServiceControl::Continue => {
                     status_handle.set_service_status(ServiceStatus {
                         service_type: SERVICE_TYPE,
                         current_state: ServiceState::Running,
@@ -212,7 +213,7 @@ fn run_main_loop(
                         process_id: None,
                     })?;
                 }
-                StatusMessage::Pause(text) => {
+                ServiceControl::Pause => {
                     status_handle.set_service_status(ServiceStatus {
                         service_type: SERVICE_TYPE,
                         current_state: ServiceState::Paused,
@@ -224,9 +225,31 @@ fn run_main_loop(
                         process_id: None,
                     })?;
                 }
-                StatusMessage::Stop(text) => {
+                ServiceControl::Stop => {
+                    need_exit_flag.store(true, Ordering::Relaxed);
                     //threads.iter().all(|t| t.);
-                }
+                    status_handle.set_service_status(ServiceStatus {
+                        service_type: SERVICE_TYPE,
+                        current_state: ServiceState::StopPending,
+                        controls_accepted: ServiceControlAccept::STOP,
+                        exit_code: ServiceExitCode::Win32(0),
+                        checkpoint: 1,
+                        wait_hint: Duration::from_secs(5),
+                        process_id: None,
+                    })?;
+                    while !threads.iter().all(|t| t.is_finished()) {}
+
+                    status_handle.set_service_status(ServiceStatus {
+                        service_type: SERVICE_TYPE,
+                        current_state: ServiceState::Stopped,
+                        controls_accepted: ServiceControlAccept::STOP,
+                        exit_code: ServiceExitCode::Win32(0),
+                        checkpoint: 2,
+                        wait_hint: Duration::default(),
+                        process_id: None,
+                    })?;
+                },
+                _ => ()
             },
             // Break the loop either upon stop or channel disconnect
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
