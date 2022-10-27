@@ -1,5 +1,4 @@
-use std::process::Child;
-use std::process::Command;
+use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -7,11 +6,9 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::{
     ffi::OsString,
-    net::{IpAddr, SocketAddr, UdpSocket},
     sync::mpsc,
     time::Duration,
 };
-
 use windows_service::{
     define_windows_service,
     service::{
@@ -22,15 +19,12 @@ use windows_service::{
     service_dispatcher, Result,
 };
 
-const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
+use crate::child_proc::ChildProcess;
+use crate::proc_config;
+use std::io::Write;
+use std::env::current_dir;
 
-const LOOPBACK_ADDR: [u8; 4] = [127, 0, 0, 1];
-const RECEIVER_PORT: u16 = 1234;
-const PING_MESSAGE: &str = "ping\n";
-const PAUSED_MESSAGE: &str = "paused\n";
-const RESUME_MESSAGE: &str = "RESUME_MESSAGE\n";
-const STOP_MESSAGE: &str = "STOP_MESSAGE\n";
-const ITTER_MESSAGE: &str = "ITTER_MESSAGE\n";
+const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
 pub fn run() -> Result<()> {
     // Register generated `ffi_service_main` with the system and start the service, blocking
@@ -47,55 +41,6 @@ define_windows_service!(ffi_service_main, my_service_main);
 pub fn my_service_main(_arguments: Vec<OsString>) {
     if let Err(_e) = run_service() {
         // Handle the error, by logging or something.
-    }
-}
-
-enum StatusMessage<T> {
-    Interrogate(T),
-    Continue(T),
-    Pause(T),
-    Stop(T),
-}
-struct ChildProcess {
-    program: String,
-    args: Vec<String>,
-    workdir: Option<String>,
-    child: Option<Child>,
-}
-
-impl ChildProcess {
-    fn new(program: String, args: Vec<String>) -> ChildProcess {
-        ChildProcess {
-            program,
-            args,
-            workdir: None,
-            child: None,
-        }
-    }
-
-    fn start(&mut self) {
-        self.child = match Command::new(&self.program).args(&self.args).spawn() {
-            Ok(child) => Some(child),
-            Err(err) => panic!("{:?}", err),
-        };
-    }
-
-    fn autorestart(&mut self, need_exit: Arc<AtomicBool>) {
-        loop {
-            match self.child.as_mut().unwrap().try_wait() {
-                Ok(Some(status)) => self.start(),
-                Ok(None) => {}
-                Err(e) => self.start(),
-            };
-
-            if need_exit.load(Ordering::Relaxed) {
-                self.child.as_mut().unwrap().kill();
-                println!("kill proc");
-                break;
-            }
-
-            thread::sleep(Duration::from_millis(100));
-        }
     }
 }
 
@@ -146,7 +91,15 @@ pub fn run_service() -> Result<()> {
         process_id: None,
     })?;
 
-    run_main_loop(status_handle, shutdown_rx);
+    match run_main_loop(status_handle, shutdown_rx) {
+        Err(err) => {
+            let file = File::create(current_dir().unwrap().join("errors.log"));
+            match file.unwrap().write(err.to_string().as_bytes()) {
+                _ => panic!("pizdec!")
+            }
+        },
+        Ok(_e) => ()
+    };
 
     // Tell the system that service has stopped.
     status_handle.set_service_status(ServiceStatus {
@@ -166,38 +119,18 @@ fn run_main_loop(
     status_handle: ServiceStatusHandle,
     shutdown_rx: Receiver<ServiceControl>,
 ) -> windows_service::Result<()> {
-    let list = vec![
-        ChildProcess::new(
-            "php.exe".to_string(),
-            vec!["C:/Users/defilak/Desktop/rust/servicers/test/app1.php".to_string()],
-        ),
-        ChildProcess::new(
-            "php.exe".to_string(),
-            vec!["-S".to_string(), "localhost:8080".to_string()],
-        ),
-    ];
+    let mut list = Vec::<ChildProcess>::new();
+    for cfg in proc_config::load() {
+        list.push(ChildProcess::from_config(cfg));
+    }
 
     // Атомарный потокобезопасный флажок обернутый в потокобезопасный strong счетчик ссылок.
     // Видимо, подразумевается что он безопасно чистит память при выходе из блока. Интересно как.
     // От родителя к потомку - Arc, обратно Weak. Написано, что иначе память потечет.
     let need_exit_flag = Arc::new(AtomicBool::new(false));
-
-    let mut threads = Vec::<JoinHandle<()>>::new();
-    for mut proc in list {
-        // Для каждого копирую ссылку
-        let shared = need_exit_flag.clone();
-        threads.push(thread::spawn(move || {
-            proc.start();
-            proc.autorestart(shared);
-        }));
-    }
+    let threads = run_processes(list, &need_exit_flag);
 
     loop {
-        if threads.iter().all(|t| t.is_finished()) {
-            println!("all threads gone");
-            break;
-        }
-
         match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(var) => match var {
                 ServiceControl::Interrogate => {}
@@ -227,7 +160,7 @@ fn run_main_loop(
                 }
                 ServiceControl::Stop => {
                     need_exit_flag.store(true, Ordering::Relaxed);
-                    //threads.iter().all(|t| t.);
+
                     status_handle.set_service_status(ServiceStatus {
                         service_type: SERVICE_TYPE,
                         current_state: ServiceState::StopPending,
@@ -237,6 +170,7 @@ fn run_main_loop(
                         wait_hint: Duration::from_secs(5),
                         process_id: None,
                     })?;
+
                     while !threads.iter().all(|t| t.is_finished()) {}
 
                     status_handle.set_service_status(ServiceStatus {
@@ -248,8 +182,8 @@ fn run_main_loop(
                         wait_hint: Duration::default(),
                         process_id: None,
                     })?;
-                },
-                _ => ()
+                }
+                _ => (),
             },
             // Break the loop either upon stop or channel disconnect
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -259,61 +193,29 @@ fn run_main_loop(
         }
     }
 
-    // For demo purposes this service sends a UDP packet once a second.
-    /*let loopback_ip = IpAddr::from(LOOPBACK_ADDR);
-    let sender_addr = SocketAddr::new(loopback_ip, 0);
-    let receiver_addr = SocketAddr::new(loopback_ip, RECEIVER_PORT);
-    //let msg = PING_MESSAGE.as_bytes();
-
-    let mut msg = PING_MESSAGE.as_bytes();
-    let socket = UdpSocket::bind(sender_addr).unwrap();
-
-    loop {
-        let _ = socket.send_to(msg, receiver_addr);
-
-        // Poll shutdown event.
-        match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
-            Ok(var) => match var {
-                StatusMessage::Interrogate(text) => {
-                    msg = text.as_bytes();
-                }
-                StatusMessage::Continue(text) => {
-                    msg = text.as_bytes();
-                    status_handle.set_service_status(ServiceStatus {
-                        service_type: SERVICE_TYPE,
-                        current_state: ServiceState::Running,
-                        controls_accepted: ServiceControlAccept::STOP
-                            | ServiceControlAccept::PAUSE_CONTINUE,
-                        exit_code: ServiceExitCode::Win32(0),
-                        checkpoint: 0,
-                        wait_hint: Duration::default(),
-                        process_id: None,
-                    })?;
-                }
-                StatusMessage::Pause(text) => {
-                    msg = text.as_bytes();
-                    status_handle.set_service_status(ServiceStatus {
-                        service_type: SERVICE_TYPE,
-                        current_state: ServiceState::Paused,
-                        controls_accepted: ServiceControlAccept::STOP
-                            | ServiceControlAccept::PAUSE_CONTINUE,
-                        exit_code: ServiceExitCode::Win32(0),
-                        checkpoint: 0,
-                        wait_hint: Duration::default(),
-                        process_id: None,
-                    })?;
-                }
-                StatusMessage::Stop(text) => {
-                    msg = text.as_bytes();
-                }
-            },
-            // Break the loop either upon stop or channel disconnect
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-
-            // Continue work if no events were received within the timeout
-            Err(mpsc::RecvTimeoutError::Timeout) => (),
-        };
-    }*/
-
     Ok(())
+}
+
+
+pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Vec<JoinHandle<()>> {
+    let mut threads = Vec::<JoinHandle<()>>::new();
+    for mut proc in list {
+        // Для каждого копирую ссылку
+        let shared = exit_flag.clone();
+        threads.push(thread::spawn(move || {
+            proc.start();
+            loop {
+                proc.try_restart();
+                if shared.load(Ordering::Relaxed) {
+                    proc.kill();
+                    println!("kill proc");
+                    break;
+                }
+
+                thread::sleep(Duration::from_millis(100));
+            }
+        }));
+    }
+
+    threads
 }
