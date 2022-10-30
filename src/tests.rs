@@ -1,3 +1,5 @@
+use super::logger;
+
 
 #[test]
 pub fn test() {
@@ -33,4 +35,12 @@ pub fn test() {
             Err(e) => println!("error attempting to wait: {e}"),
         }
     }
+}
+
+#[test]
+fn asd() {
+    logger::log("АХАХАХА БЛЯ АФОЛДФОЫАОДФЛЫ");
+    logger::log("ПИЗДЕЦ");
+
+    loop {} 
 }

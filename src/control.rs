@@ -11,8 +11,8 @@ use windows_service::{
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
 
-const SERVICE_DISPLAY_NAME: &str = "A1 My test service";
-const SERVICE_DESC: &str = "My superkrutoy service";
+const SERVICE_DISPLAY_NAME: &str = "A1 Супервизор АП-ПРО";
+const SERVICE_DESC: &str = "Контроль сервисов АП";
 
 pub fn get_service(
     request_access: ServiceManagerAccess,
@@ -20,7 +20,7 @@ pub fn get_service(
 ) -> windows_service::Result<Service> {
     let service_manager = ServiceManager::local_computer(None::<&str>, request_access)?;
 
-    service_manager.open_service("rtest", ServiceAccess::QUERY_STATUS | service_access)
+    service_manager.open_service(super::SERVICE_NAME, ServiceAccess::QUERY_STATUS | service_access)
 }
 
 pub fn start() -> windows_service::Result<()> {

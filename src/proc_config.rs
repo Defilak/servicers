@@ -1,20 +1,34 @@
+use super::logger::log;
+use serde::{self, Deserialize, Serialize};
+use std::fs::File;
+use std::io::{BufReader, Read, Write};
+use std::path::Path;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
 
-#[derive(Debug)]
-pub struct ProcessConfig<'a> {
-    pub program: &'a str,
-    pub args: Vec<&'a str>,
-    pub cwd: &'a str,
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ProcessConfigState {
+    Enabled,
+    Disabled,
 }
 
-impl<'a> ProcessConfig<'a> {
-    pub fn _new(program: &str) -> ProcessConfig {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProcessConfig {
+    pub program: String,
+    pub args: Vec<String>,
+    pub cwd: String,
+    pub state: ProcessConfigState,
+}
+
+impl ProcessConfig {
+    pub fn _new(program: String, args: Vec<String>, cwd: String) -> ProcessConfig {
         ProcessConfig {
             program: program,
-            args: vec![],
-            cwd: "",
+            args: args,
+            cwd: cwd,
+            state: ProcessConfigState::Enabled,
         }
     }
 
@@ -28,8 +42,30 @@ impl<'a> ProcessConfig<'a> {
     }
 }
 
-pub fn load() -> Vec<ProcessConfig<'static>> {
-    vec![
+pub fn load() -> Vec<ProcessConfig> {
+    let file_path = Path::new("servicers.json");
+    if !file_path.exists() {
+        create_default();
+    }
+
+    let vec: Vec<ProcessConfig> = match File::open(file_path) {
+        Ok(file) => {
+            let mut reader = BufReader::new(file);
+
+            let mut text = String::new();
+            reader.read_to_string(&mut text).unwrap();
+
+            let sad = serde_json::from_str(&text).unwrap();
+            sad
+        }
+        Err(err) => {
+            log(&err);
+            Vec::<ProcessConfig>::new()
+        }
+    };
+
+    vec
+    /*vec![
         ProcessConfig {
             program: "C:/nginx/nginx.exe",
             args: vec![],
@@ -40,5 +76,28 @@ pub fn load() -> Vec<ProcessConfig<'static>> {
             args: vec!["-b", "localhost:9123"],
             cwd: "C:/nginx/html",
         },
-    ]
+    ]*/
+}
+
+fn save(cfg: Vec<&ProcessConfig>) -> std::io::Result<()> {
+    let text = serde_json::to_string_pretty(&cfg)?;
+
+    File::create("servicers.json")?.write_all(&text.as_bytes())?;
+
+    Ok(())
+}
+
+fn create_default() {
+    save(vec![&ProcessConfig {
+        program: "".to_string(),
+        args: vec![],
+        cwd: "".to_string(),
+        state: ProcessConfigState::Enabled,
+    }])
+    .unwrap();
+}
+
+#[test]
+fn test_load() {
+    dbg!(load());
 }

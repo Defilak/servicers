@@ -2,13 +2,14 @@ use std::env;
 use crate::child_proc::ChildProcess;
 use std::sync::atomic::AtomicBool;
 
+mod logger;
 mod tests;
 mod child_proc;
 mod control;
 mod monitor_service;
 mod proc_config;
 
-pub const SERVICE_NAME: &str = "rtest";
+pub const SERVICE_NAME: &str = "servicers";
 
 #[cfg(not(windows))]
 pub fn main() {

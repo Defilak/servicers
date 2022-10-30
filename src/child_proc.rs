@@ -1,28 +1,25 @@
-use crate::proc_config::ProcessConfig;
+use crate::proc_config::{ProcessConfig, ProcessConfigState};
 use std::process::Child;
 
 pub struct ChildProcess {
-    config: ProcessConfig<'static>,
+    config: ProcessConfig,
     child: Option<Child>,
 }
 
 impl ChildProcess {
-    pub fn _new(
-        program: &'static str,
-        args: Vec<&'static str>,
-        workdir: Option<&'static str>,
-    ) -> ChildProcess {
+    pub fn _new(program: &str, args: Vec<String>, workdir: String) -> ChildProcess {
         ChildProcess {
             config: ProcessConfig {
-                program: program,
+                program: program.to_string(),
                 args: args,
-                cwd: workdir.unwrap(),
+                cwd: workdir,
+                state: ProcessConfigState::Enabled,
             },
             child: None,
         }
     }
 
-    pub fn from_config(config: ProcessConfig<'static>) -> ChildProcess {
+    pub fn from_config(config: ProcessConfig) -> ChildProcess {
         ChildProcess {
             config: config,
             child: None,
