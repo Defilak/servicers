@@ -10,9 +10,6 @@ pub const NGINX_PATH: &str = "C:/nginx/nginx.exe";
 pub const NGINX_STOP_ARGS:[&str; 2] = ["-s", "stop"];
 pub const NGINX_CWD: &str = "C:/nginx";
 
-pub const APACHE_SERVICE_NAME: &str = "APPRO_Apache";
-pub const MYSQL_SERVICE_NAME: &str = "APPRO_MySQL";
-
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]

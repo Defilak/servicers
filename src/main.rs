@@ -8,6 +8,7 @@ use std::{
 };
 
 mod child_proc;
+mod child_service;
 mod control;
 mod logger;
 mod monitor_service;
@@ -26,7 +27,6 @@ fn main() -> windows_service::Result<()> {
 
     use windows_service::service::ServiceState;
 
-    use crate::control::ChildServiceControl;
 
     let args: Vec<String> = env::args().collect();
 
@@ -69,7 +69,7 @@ fn main() -> windows_service::Result<()> {
         None => {
             let mut threads = Vec::<JoinHandle<()>>::new();
             let need_exit = Arc::new(AtomicBool::new(false));
-            let child_service1 = ChildServiceControl::new(proc_config::APACHE_SERVICE_NAME);
+            let child_service1 = child_service::ChildServiceControl::new(child_service::APACHE_SERVICE_NAME);
             if child_service1.is_ok() {
                 let mut proc = child_service1.unwrap();
                 let exit_flag = need_exit.clone();

@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::{ffi::OsString, sync::mpsc, time::Duration};
 use windows_service::{
@@ -14,8 +14,8 @@ use windows_service::{
     service_dispatcher, Result,
 };
 
-use crate::child_proc::{run_processes, run_services, ChildProcess};
-use crate::control::ChildServiceControl;
+use crate::child_proc::{run_processes, ChildProcess};
+use crate::child_service::run_services;
 use crate::logger::log;
 use crate::proc_config::{self, *};
 
@@ -123,20 +123,9 @@ fn run_main_loop(
     // От родителя к потомку - Arc, обратно Weak. Написано, что иначе память потечет.
     let need_exit = Arc::new(AtomicBool::new(false));
 
-    let mut child_services: Vec<ChildServiceControl> = vec![];
-
-    let apache = ChildServiceControl::new(proc_config::APACHE_SERVICE_NAME);
-    if apache.is_ok() {
-        child_services.push(apache.unwrap());
-    }
-
-    let mysql = ChildServiceControl::new(proc_config::MYSQL_SERVICE_NAME);
-    if mysql.is_ok() {
-        child_services.push(mysql.unwrap());
-    }
 
     let mut threads = run_processes(list, &need_exit);
-    threads.extend(run_services(child_services, &need_exit));
+    threads.extend(run_services(&need_exit));
 
     log!("Service started");
 
