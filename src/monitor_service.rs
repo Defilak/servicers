@@ -14,10 +14,10 @@ use windows_service::{
     service_dispatcher, Result,
 };
 
-use crate::child_proc::{ChildProcess,run_processes};
-use crate::logger::log;
-use crate::proc_config::{self,*};
+use crate::child_proc::{run_processes, run_services, ChildProcess};
 use crate::control::ChildServiceControl;
+use crate::logger::log;
+use crate::proc_config::{self, *};
 
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
@@ -90,7 +90,7 @@ pub fn run_service() -> Result<()> {
 
     match run_main_loop(status_handle, shutdown_rx) {
         Err(err) => {
-            log!("{:?}",&err);
+            log!("{:?}", &err);
         }
         Ok(_e) => (),
     };
@@ -122,55 +122,24 @@ fn run_main_loop(
     // Видимо, подразумевается что он безопасно чистит память при выходе из блока. Интересно как.
     // От родителя к потомку - Arc, обратно Weak. Написано, что иначе память потечет.
     let need_exit = Arc::new(AtomicBool::new(false));
+
+    let mut child_services: Vec<ChildServiceControl> = vec![];
+
+    let apache = ChildServiceControl::new(proc_config::APACHE_SERVICE_NAME);
+    if apache.is_ok() {
+        child_services.push(apache.unwrap());
+    }
+
+    let mysql = ChildServiceControl::new(proc_config::MYSQL_SERVICE_NAME);
+    if mysql.is_ok() {
+        child_services.push(mysql.unwrap());
+    }
+
     let mut threads = run_processes(list, &need_exit);
-
-    let child_service1 = ChildServiceControl::new(proc_config::APACHE_SERVICE_NAME);
-    if child_service1.is_ok() {
-        let mut proc = child_service1.unwrap();
-        let exit_flag = need_exit.clone();
-
-        log!("Starting {}", proc.name);
-
-        threads.push(thread::spawn(move || {
-            match proc.start() {
-                Ok(_) => log!("{} started", &proc.name),
-                Err(err) => log!("{:?}",&err)
-            };
-
-            loop {
-                if exit_flag.load(Ordering::Relaxed) == true {
-                    log!("Stopping: {:?}", &proc.name);
-                    match proc.stop() {
-                        Ok(_) => log!("{} stopped", &proc.name),
-                        Err(err) => log!("{:?}",&err)
-                    };
-                    break;
-                }
-
-                let status = proc.status();
-                dbg!(&status);
-                
-                thread::sleep(Duration::from_millis(100));
-            }
-        }));
-    }
-
-    let mut child_service2 = ChildServiceControl::new(proc_config::MYSQL_SERVICE_NAME);
-    if let Ok(proc) = child_service2.as_mut() {
-        log!("Starting {}", proc.name);
-        proc.start()?;
-    }
-
-    threads.push(thread::spawn(|| {
-        loop {
-            
-            thread::sleep(Duration::from_millis(100));
-        }
-    }));
-
+    threads.extend(run_services(child_services, &need_exit));
 
     log!("Service started");
-    
+
     loop {
         match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(var) => match var {
@@ -210,21 +179,13 @@ fn run_main_loop(
                         process_id: None,
                     })?;
 
-                    /*if let Ok(proc) = child_service1.as_mut() {
-                        log!("Stopping {}", proc.name));
-                        proc.stop()?;
-                    }
-                    if let Ok(proc) = child_service2.as_mut() {
-                        log!("Stopping {}", proc.name));
-                        proc.stop()?;
-                    }*/
-
                     need_exit.store(true, Ordering::Relaxed);
-                    
+
                     Command::new(&NGINX_PATH)
                         .args(&NGINX_STOP_ARGS)
                         .current_dir(&NGINX_CWD)
-                        .spawn().ok();
+                        .spawn()
+                        .ok();
 
                     while !threads.iter().all(|t| t.is_finished()) {
                         thread::sleep(Duration::from_millis(100));
@@ -253,20 +214,4 @@ fn run_main_loop(
     }
 
     Ok(())
-}
-
-pub fn _run_processes_sync(mut list: Vec<ChildProcess>) {
-    for proc in &mut list {
-        proc.start();
-    }
-
-    loop {
-        for proc in &mut list {
-            if proc.config.is_valid() {
-                proc.try_restart();
-            }
-        }
-
-        thread::sleep(Duration::from_millis(100));
-    }
 }

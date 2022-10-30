@@ -10,7 +10,7 @@ pub const NGINX_PATH: &str = "C:/nginx/nginx.exe";
 pub const NGINX_STOP_ARGS:[&str; 2] = ["-s", "stop"];
 pub const NGINX_CWD: &str = "C:/nginx";
 
-pub const APACHE_SERVICE_NAME: &str = "GoodbyeDPI";//"APPRO_Apache";
+pub const APACHE_SERVICE_NAME: &str = "APPRO_Apache";
 pub const MYSQL_SERVICE_NAME: &str = "APPRO_MySQL";
 
 
@@ -58,7 +58,7 @@ pub fn load() -> Vec<ProcessConfig> {
     file_path.pop();
     file_path.push("servicers.json");
     if !file_path.exists() {
-        create_default();
+        create_default().unwrap();
     }
 
     let mut vec: Vec<ProcessConfig> = match File::open(file_path) {
@@ -93,25 +93,19 @@ pub fn load() -> Vec<ProcessConfig> {
     vec
 }
 
-fn save(cfg: Vec<&ProcessConfig>) -> std::io::Result<()> {
-    let text = serde_json::to_string_pretty(&cfg)?;
+fn create_default() -> std::io::Result<()> {
+    let text = serde_json::to_string_pretty(&vec![&ProcessConfig {
+        program: "".to_string(),
+        args: vec![],
+        cwd: "".to_string(),
+        state: ProcessConfigState::Enabled,
+    }])?;
 
     let mut file_path = std::env::current_exe().unwrap();
     file_path.pop();
     file_path.push("servicers.json");
     File::create(file_path)?.write_all(&text.as_bytes())?;
-
     Ok(())
-}
-
-fn create_default() {
-    save(vec![&ProcessConfig {
-        program: "".to_string(),
-        args: vec![],
-        cwd: "".to_string(),
-        state: ProcessConfigState::Enabled,
-    }])
-    .unwrap();
 }
 
 #[test]

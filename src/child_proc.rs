@@ -1,3 +1,6 @@
+use windows_service::service::ServiceState;
+
+use crate::control::ChildServiceControl;
 use crate::logger::log;
 use crate::proc_config::*;
 use std::process::{Child, Command};
@@ -53,9 +56,7 @@ impl ChildProcess {
 
     pub fn start(&mut self) {
         self.child = match self.config.spawn_new() {
-            Ok(child) => {
-                Some(child)
-            }
+            Ok(child) => Some(child),
             Err(err) => {
                 log!("{:?}", &err);
                 None
@@ -136,6 +137,56 @@ pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Ve
                         log!("Restarting: {:?}", &proc.config);
                     }
                 }
+
+                thread::sleep(Duration::from_millis(100));
+            }
+        }));
+    }
+
+    threads
+}
+
+pub fn run_services(
+    list: Vec<ChildServiceControl>,
+    exit_flag: &Arc<AtomicBool>,
+) -> Vec<JoinHandle<()>> {
+    let mut threads = Vec::<JoinHandle<()>>::new();
+
+    for mut serv in list {
+        let exit_flag = exit_flag.clone();
+
+        threads.push(thread::spawn(move || {
+            match serv.start() {
+                Ok(_) => log!("{} started", &serv.name),
+                Err(err) => log!("{:?}", &err),
+            };
+
+            loop {
+                if exit_flag.load(Ordering::Relaxed) == true {
+                    log!("Stopping: {:?}", &serv.name);
+                    match serv.stop() {
+                        Ok(_) => log!("{} stopped", &serv.name),
+                        Err(err) => log!("{:?}", &err),
+                    };
+                    break;
+                }
+
+                match serv.status() {
+                    Ok(status) => {
+                        if status.current_state != ServiceState::Running {
+                            log!(
+                                "Restarting service {}: {:?}",
+                                &serv.name,
+                                status.current_state
+                            );
+                            match serv.start() {
+                                Ok(()) => log!("Service {} restarted", &serv.name),
+                                Err(err) => log!("Can't restart service {}: {}", &serv.name, err),
+                            };
+                        }
+                    }
+                    Err(err) => log!("Can't get status for service {}: {}", &serv.name, err),
+                };
 
                 thread::sleep(Duration::from_millis(100));
             }
