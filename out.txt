@@ -1,7 +1,0 @@
-hello bratanC:\Users\defilak\Desktop\servicers\test\index.php:5:
-array(2) {
-  [0] =>
-  string(49) "C:/Users/defilak/Desktop/servicers/test/index.php"
-  [1] =>
-  string(0) ""
-}

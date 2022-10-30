@@ -1,7 +1,6 @@
-use crate::child_proc::ChildProcess;
+use crate::child_proc::{ChildProcess,run_processes};
 use crate::logger::log;
 use std::env;
-use std::sync::atomic::AtomicBool;
 
 mod child_proc;
 mod control;
@@ -19,7 +18,7 @@ pub fn main() {
 
 #[cfg(windows)]
 fn main() -> windows_service::Result<()> {
-    use std::sync::Arc;
+    use std::{sync::{Arc, Mutex, atomic::AtomicBool}, time::Duration, thread};
 
     let args: Vec<String> = env::args().collect();
 
@@ -38,9 +37,13 @@ fn main() -> windows_service::Result<()> {
                     list.push(ChildProcess::from_config(cfg));
                 }
 
-                let need_exit_flag = Arc::new(AtomicBool::new(false));
-                monitor_service::run_processes(list, &need_exit_flag);
-                loop {}
+                let need_exit = Arc::new(AtomicBool::new(false));
+                let threads = run_processes(list, &need_exit);
+                
+                while !threads.iter().all(|t| t.is_finished()) {
+                    thread::sleep(Duration::from_millis(100));
+                };
+                Ok(())
             }
             "runservice" => {
                 match monitor_service::run() {

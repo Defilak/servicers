@@ -33,7 +33,7 @@ pub fn start() -> windows_service::Result<()> {
 
     let service_status = service.query_status()?;
     if service_status.current_state != ServiceState::Running {
-        service.start(&[OsStr::new("Started from Rust!")])?;
+        service.start(&[OsStr::new("runservice")])?;
         // Wait for service to stop
         thread::sleep(Duration::from_secs(1));
     }
@@ -100,7 +100,7 @@ pub fn install() -> windows_service::Result<()> {
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
         executable_path: std::env::current_exe().unwrap(),
-        launch_arguments: vec![],
+        launch_arguments: vec![OsString::from("runservice")],
         dependencies: vec![],
         account_name: None, // run as System
         account_password: None,

@@ -1,9 +1,8 @@
-use std::fs::File;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thread::JoinHandle;
 use std::{ffi::OsString, sync::mpsc, time::Duration};
 use windows_service::{
     define_windows_service,
@@ -15,10 +14,9 @@ use windows_service::{
     service_dispatcher, Result,
 };
 
-use crate::child_proc::ChildProcess;
-use crate::proc_config::{self, ProcessConfig};
-use std::env::current_dir;
-use std::io::Write;
+use crate::child_proc::{ChildProcess,run_processes};
+use crate::logger::log;
+use crate::proc_config::{self,*};
 
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
@@ -89,10 +87,7 @@ pub fn run_service() -> Result<()> {
 
     match run_main_loop(status_handle, shutdown_rx) {
         Err(err) => {
-            let file = File::create(current_dir().unwrap().join("errors.log"));
-            match file.unwrap().write(err.to_string().as_bytes()) {
-                _ => panic!("pizdec!"),
-            }
+            log(&err);
         }
         Ok(_e) => (),
     };
@@ -123,8 +118,8 @@ fn run_main_loop(
     // Атомарный потокобезопасный флажок обернутый в потокобезопасный strong счетчик ссылок.
     // Видимо, подразумевается что он безопасно чистит память при выходе из блока. Интересно как.
     // От родителя к потомку - Arc, обратно Weak. Написано, что иначе память потечет.
-    let need_exit_flag = Arc::new(AtomicBool::new(false));
-    let threads = run_processes(list, &need_exit_flag);
+    let need_exit = Arc::new(AtomicBool::new(false));
+    let threads = run_processes(list, &need_exit);
 
     loop {
         match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
@@ -155,8 +150,6 @@ fn run_main_loop(
                     })?;
                 }
                 ServiceControl::Stop => {
-                    need_exit_flag.store(true, Ordering::Relaxed);
-
                     status_handle.set_service_status(ServiceStatus {
                         service_type: SERVICE_TYPE,
                         current_state: ServiceState::StopPending,
@@ -167,7 +160,17 @@ fn run_main_loop(
                         process_id: None,
                     })?;
 
-                    while !threads.iter().all(|t| t.is_finished()) {}
+                    need_exit.store(true, Ordering::Relaxed);
+
+                    Command::new(&NGINX_PATH)
+                        .args(&NGINX_STOP_ARGS)
+                        .current_dir(&NGINX_CWD)
+                        .spawn()
+                        .unwrap();
+
+                    while !threads.iter().all(|t| t.is_finished()) {
+                        thread::sleep(Duration::from_millis(100));
+                    }
 
                     status_handle.set_service_status(ServiceStatus {
                         service_type: SERVICE_TYPE,
@@ -192,7 +195,7 @@ fn run_main_loop(
     Ok(())
 }
 
-pub fn run_processes1(mut list: Vec<ChildProcess>) {
+pub fn _run_processes_sync(mut list: Vec<ChildProcess>) {
     for proc in &mut list {
         proc.start();
     }
@@ -206,38 +209,4 @@ pub fn run_processes1(mut list: Vec<ChildProcess>) {
 
         thread::sleep(Duration::from_millis(100));
     }
-}
-
-#[test]
-fn test_run() {
-    let mut list = Vec::<ChildProcess>::new();
-    for cfg in proc_config::load() {
-
-        list.push(ChildProcess::from_config(cfg));
-    }
-
-    run_processes1(list);
-}
-
-pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Vec<JoinHandle<()>> {
-    let mut threads = Vec::<JoinHandle<()>>::new();
-    for mut proc in list {
-        // Для каждого копирую ссылку
-        let shared = exit_flag.clone();
-        threads.push(thread::spawn(move || {
-            proc.start();
-            loop {
-                proc.try_restart();
-                if shared.load(Ordering::Relaxed) {
-                    proc.kill();
-                    println!("kill proc");
-                    break;
-                }
-
-                thread::sleep(Duration::from_millis(100));
-            }
-        }));
-    }
-
-    threads
 }

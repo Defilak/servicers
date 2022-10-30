@@ -7,6 +7,14 @@ use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
 
+pub const NGINX_PATH: &str = "C:/nginx/nginx.exe";
+pub const NGINX_STOP_ARGS:[&str; 2] = ["-s", "stop"];
+pub const NGINX_CWD: &str = "C:/nginx";
+
+pub const APACHE_SERVICE_NAME: &str = "APPRO_Apache24";
+pub const MYSQL_SERVICE_NAME: &str = "APPRO_MySQL57";
+
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ProcessConfigState {
@@ -33,7 +41,7 @@ impl ProcessConfig {
     }
 
     pub fn is_valid(&self) -> bool {
-        self.program.len() > 0 && self.state == ProcessConfigState::Disabled
+        self.program.len() > 0 && self.state != ProcessConfigState::Disabled
     }
 
     pub fn spawn_new(&self) -> Result<Child, std::io::Error> {
@@ -47,7 +55,9 @@ impl ProcessConfig {
 }
 
 pub fn load() -> Vec<ProcessConfig> {
-    let file_path = Path::new("servicers.json");
+    let mut file_path = std::env::current_exe().unwrap();
+    file_path.pop();
+    file_path.push("servicers.json");
     if !file_path.exists() {
         create_default();
     }

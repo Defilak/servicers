@@ -1,6 +1,10 @@
-use crate::proc_config::{ProcessConfig, ProcessConfigState};
 use crate::logger::log;
-use std::process::Child;
+use crate::proc_config::{self, *};
+use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 pub struct ChildProcess {
     pub config: ProcessConfig,
@@ -27,13 +31,36 @@ impl ChildProcess {
         }
     }
 
+    pub fn run(&mut self, exit_flag: &Arc<Mutex<bool>>) {
+        if self.config.is_valid() {
+            println!("spawnthread");
+            self.start();
+        }
+
+        loop {
+            if exit_flag.lock().unwrap().eq(&true) {
+                self.kill();
+                break;
+            }
+
+            if self.config.is_valid() {
+                self.try_restart();
+            }
+
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
     pub fn start(&mut self) {
         self.child = match self.config.spawn_new() {
             Ok(child) => {
                 dbg!(&child);
                 Some(child)
             }
-            Err(err) => panic!("{:?}", err),
+            Err(err) => {
+                log(&err);
+                None
+            }
         };
     }
 
@@ -44,7 +71,7 @@ impl ChildProcess {
             match self.child.as_mut().unwrap().wait() {
                 Ok(e) => {
                     log(&e);
-                },
+                }
                 Err(e) => {
                     log(&e);
                 }
@@ -53,28 +80,93 @@ impl ChildProcess {
         }
     }
 
-    pub fn try_restart(&mut self) {
+    pub fn try_restart(&mut self) -> bool {
         match self.child.as_mut().unwrap().try_wait() {
             Ok(Some(status)) => {
                 dbg!(status);
-                self.start()
+                self.start();
+                true
             }
-            Ok(None) => {}
             Err(e) => {
                 dbg!(e);
-                self.start()
+                self.start();
+                true
             }
-        };
+            Ok(None) => false,
+        }
     }
 
     pub fn kill(&mut self) {
-        match self.child.as_mut().unwrap().kill() {
-            Ok(e) => {
-                dbg!(e);
-            }
-            Err(err) => {
-                dbg!(err);
+        if let Some(child) = self.child.as_mut() {
+            match child.kill() {
+                Ok(e) => {
+                    dbg!(e);
+                }
+                Err(err) => {
+                    dbg!(err);
+                }
             }
         }
     }
+}
+
+pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Vec<JoinHandle<()>> {
+    let mut threads = Vec::<JoinHandle<()>>::new();
+    for mut proc in list {
+        // Для каждого копирую ссылку
+        let exit_flag = exit_flag.clone();
+
+        threads.push(thread::spawn(move || {
+            if !proc.config.is_valid() {
+                log(&format!("Invalid config: {:?}", &proc.config));
+                return;
+            }
+
+            log(&format!("Starting: {:?}", &proc.config));
+            proc.start();
+
+            loop {
+                if exit_flag.load(Ordering::Relaxed) == true {
+                    log(&format!("Killing: {:?}", &proc.config));
+                    proc.kill();
+                    break;
+                }
+
+                if proc.config.is_valid() {
+                    if proc.try_restart() {
+                        log(&format!("Restarting: {:?}", &proc.config));
+                    }
+                }
+
+                thread::sleep(Duration::from_millis(100));
+            }
+        }));
+    }
+
+    threads
+}
+
+#[test]
+fn test_run() {
+    let mut list = Vec::<ChildProcess>::new();
+    for cfg in super::proc_config::load() {
+        list.push(ChildProcess::from_config(cfg));
+    }
+
+    let need_exit = Arc::new(AtomicBool::new(false));
+    let threads = run_processes(list, &need_exit);
+
+    thread::sleep(Duration::from_secs(5));
+    need_exit.store(true, Ordering::Relaxed);
+
+    Command::new(&NGINX_PATH)
+        .args(&NGINX_STOP_ARGS)
+        .current_dir(&NGINX_CWD)
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+
+    thread::sleep(Duration::from_secs(10));
+    while !threads.iter().all(|t| t.is_finished()) {}
 }
