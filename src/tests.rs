@@ -1,4 +1,3 @@
-use super::logger::log;
 
 
 #[test]
@@ -39,6 +38,7 @@ pub fn test() {
 
 #[test]
 fn asd() {
+    use super::logger::log;
     log!("АХАХАХА БЛЯ АФОЛДФОЫАОДФЛЫ");
     log!("ПИЗДЕЦ");
 

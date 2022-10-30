@@ -6,14 +6,13 @@ use std::{
 use windows_service::{
     service::{
         Service, ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState,
-        ServiceType, ServiceStatus,
+        ServiceType,
     },
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
 
-const SERVICE_DISPLAY_NAME: &str = "A1 Супервизор АП-ПРО";
+const SERVICE_DISPLAY_NAME: &str = "A1 Сервис АП";
 const SERVICE_DESC: &str = "Контроль сервисов АП";
-
 
 pub fn get_service(
     request_access: ServiceManagerAccess,
@@ -127,58 +126,3 @@ pub fn uninstall() -> windows_service::Result<()> {
     service.delete()?;
     Ok(())
 }
-
-/*
-struct ServiceControl {
-    manager: ServiceManager,
-    service: Service,
-}
-
-impl ServiceControl {
-    fn new(name: &str)/*  -> ServiceControl */{
-        //ServiceControl { manager, service }
-        let manager = ServiceManager::local_computer(None::<&str>, request_access);
-    }
-
-    fn get_service(
-        request_access: ServiceManagerAccess,
-        service_access: ServiceAccess,
-    ) -> windows_service::Result<Service> {
-        let service_manager = ServiceManager::local_computer(None::<&str>, request_access)?;
-
-        service_manager.open_service("rtest", ServiceAccess::QUERY_STATUS | service_access)
-    }
-
-    fn install() -> windows_service::Result<()> {
-        let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
-        let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
-
-        // This example installs the service defined in `examples/ping_service.rs`.
-        // In the real world code you would set the executable path to point to your own binary
-        // that implements windows service.
-        let service_binary_path = ::std::env::current_exe().unwrap();
-
-        let service_info = ServiceInfo {
-            name: OsString::from("rtest"),
-            display_name: OsString::from("A1 My test service"),
-            service_type: ServiceType::OWN_PROCESS,
-            start_type: ServiceStartType::AutoStart,
-            error_control: ServiceErrorControl::Normal,
-            executable_path: service_binary_path,
-            launch_arguments: vec![],
-            dependencies: vec![],
-            account_name: None, // run as System
-            account_password: None,
-        };
-        let service =
-            service_manager.create_service(&service_info, ServiceAccess::CHANGE_CONFIG)?;
-        service.set_description("Windows service example from windows-service-rs")?;
-        Ok(())
-    }
-    fn uninstall() {}
-    fn start() {}
-    fn stop() {}
-    fn pause() {}
-    fn resume() {}
-    fn status() {}
-}*/

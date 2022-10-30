@@ -7,9 +7,8 @@ use std::process::Command;
 use std::process::Stdio;
 
 pub const NGINX_PATH: &str = "C:/nginx/nginx.exe";
-pub const NGINX_STOP_ARGS:[&str; 2] = ["-s", "stop"];
+pub const NGINX_STOP_ARGS: [&str; 2] = ["-s", "stop"];
 pub const NGINX_CWD: &str = "C:/nginx";
-
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
@@ -24,6 +23,7 @@ pub struct ProcessConfig {
     pub args: Vec<String>,
     pub cwd: String,
     pub state: ProcessConfigState,
+    pub pid: u32,
 }
 
 impl ProcessConfig {
@@ -33,6 +33,7 @@ impl ProcessConfig {
             args: args,
             cwd: cwd,
             state: ProcessConfigState::Enabled,
+            pid: 0,
         }
     }
 
@@ -69,7 +70,7 @@ pub fn load() -> Vec<ProcessConfig> {
             sad
         }
         Err(err) => {
-            log!("{:?}",&err);
+            log!("{:?}", &err);
             Vec::<ProcessConfig>::new()
         }
     };
@@ -79,12 +80,14 @@ pub fn load() -> Vec<ProcessConfig> {
         args: vec![],
         cwd: "C:/nginx".to_string(),
         state: ProcessConfigState::Enabled,
+        pid: 0,
     });
     vec.push(ProcessConfig {
         program: "C:/php/8.1.8/php-cgi.exe".to_string(),
         args: vec!["-b".to_string(), "localhost:9123".to_string()],
         cwd: "C:/nginx/html".to_string(),
         state: ProcessConfigState::Enabled,
+        pid: 0,
     });
 
     vec
@@ -96,6 +99,7 @@ fn create_default() -> std::io::Result<()> {
         args: vec![],
         cwd: "".to_string(),
         state: ProcessConfigState::Enabled,
+        pid: 0,
     }])?;
 
     let mut file_path = std::env::current_exe().unwrap();

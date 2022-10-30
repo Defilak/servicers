@@ -55,7 +55,7 @@ impl ChildServiceControl {
         Ok(())
     }
 
-    pub fn pause(&mut self) -> windows_service::Result<()> {
+    pub fn _pause(&mut self) -> windows_service::Result<()> {
         let service_status = self.service.query_status()?;
         if service_status.current_state != ServiceState::Paused {
             self.service.pause()?;
@@ -65,7 +65,7 @@ impl ChildServiceControl {
         Ok(())
     }
 
-    pub fn resume(&mut self) -> windows_service::Result<()> {
+    pub fn _resume(&mut self) -> windows_service::Result<()> {
         let service_status = self.service.query_status()?;
         if service_status.current_state != ServiceState::Running {
             self.service.resume()?;

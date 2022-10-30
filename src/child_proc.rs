@@ -1,6 +1,6 @@
 use crate::logger::log;
 use crate::proc_config::*;
-use std::process::{Child, Command};
+use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -19,6 +19,7 @@ impl ChildProcess {
                 args: args,
                 cwd: workdir,
                 state: ProcessConfigState::Enabled,
+                pid: 0
             },
             child: None,
         }
@@ -31,7 +32,7 @@ impl ChildProcess {
         }
     }
 
-    pub fn run(&mut self, exit_flag: &Arc<Mutex<bool>>) {
+    pub fn _run(&mut self, exit_flag: &Arc<Mutex<bool>>) {
         if self.config.is_valid() {
             println!("spawnthread");
             self.start();
@@ -53,7 +54,10 @@ impl ChildProcess {
 
     pub fn start(&mut self) {
         self.child = match self.config.spawn_new() {
-            Ok(child) => Some(child),
+            Ok(child) => {
+                self.config.pid = child.id();
+                Some(child)
+            },
             Err(err) => {
                 log!("Can't start {:?}: {:?}", &self.config, &err);
                 None
@@ -61,7 +65,7 @@ impl ChildProcess {
         };
     }
 
-    pub fn start_restart_loop(&mut self) {
+    pub fn _start_restart_loop(&mut self) {
         self.start();
 
         loop {
@@ -145,6 +149,8 @@ pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Ve
 
 #[test]
 fn test_run() {
+    use std::process::Command;
+
     let mut list = Vec::<ChildProcess>::new();
     for cfg in super::proc_config::load() {
         list.push(ChildProcess::from_config(cfg));

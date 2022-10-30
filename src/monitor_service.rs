@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use std::thread;
 use std::{ffi::OsString, sync::mpsc, time::Duration};
 use windows_service::{
@@ -36,6 +36,24 @@ define_windows_service!(ffi_service_main, my_service_main);
 pub fn my_service_main(_arguments: Vec<OsString>) {
     if let Err(_e) = run_service() {
         // Handle the error, by logging or something.
+    }
+}
+
+trait ServiceStatusStates {
+    fn state(state: ServiceState) -> ServiceStatus;
+}
+
+impl ServiceStatusStates for ServiceStatus {
+    fn state(state: ServiceState) -> ServiceStatus {
+        ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: state,
+            controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::PAUSE_CONTINUE,
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::default(),
+            process_id: None,
+        }
     }
 }
 
@@ -77,16 +95,7 @@ pub fn run_service() -> Result<()> {
     // Возвращаемый дескриптор состояния следует использовать для сообщения системе об изменении состояния службы.
     let status_handle = service_control_handler::register(super::SERVICE_NAME, event_handler)?;
 
-    // Сообщаю венде, что служба запущена
-    status_handle.set_service_status(ServiceStatus {
-        service_type: SERVICE_TYPE,
-        current_state: ServiceState::Running,
-        controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::PAUSE_CONTINUE,
-        exit_code: ServiceExitCode::Win32(0),
-        checkpoint: 0,
-        wait_hint: Duration::default(),
-        process_id: None,
-    })?;
+    status_handle.set_service_status(ServiceStatus::state(ServiceState::StartPending))?;
 
     match run_main_loop(status_handle, shutdown_rx) {
         Err(err) => {
@@ -96,15 +105,7 @@ pub fn run_service() -> Result<()> {
     };
 
     // Tell the system that service has stopped.
-    status_handle.set_service_status(ServiceStatus {
-        service_type: SERVICE_TYPE,
-        current_state: ServiceState::Stopped,
-        controls_accepted: ServiceControlAccept::empty(),
-        exit_code: ServiceExitCode::Win32(0),
-        checkpoint: 0,
-        wait_hint: Duration::default(),
-        process_id: None,
-    })?;
+    status_handle.set_service_status(ServiceStatus::state(ServiceState::Stopped))?;
 
     Ok(())
 }
@@ -123,10 +124,11 @@ fn run_main_loop(
     // От родителя к потомку - Arc, обратно Weak. Написано, что иначе память потечет.
     let need_exit = Arc::new(AtomicBool::new(false));
 
-
     let mut threads = run_processes(list, &need_exit);
     threads.extend(run_services(&need_exit));
 
+    // Сообщаю венде, что служба запущена
+    status_handle.set_service_status(ServiceStatus::state(ServiceState::Running))?;
     log!("Service started");
 
     loop {
@@ -134,39 +136,15 @@ fn run_main_loop(
             Ok(var) => match var {
                 ServiceControl::Interrogate => {}
                 ServiceControl::Continue => {
-                    status_handle.set_service_status(ServiceStatus {
-                        service_type: SERVICE_TYPE,
-                        current_state: ServiceState::Running,
-                        controls_accepted: ServiceControlAccept::STOP
-                            | ServiceControlAccept::PAUSE_CONTINUE,
-                        exit_code: ServiceExitCode::Win32(0),
-                        checkpoint: 0,
-                        wait_hint: Duration::default(),
-                        process_id: None,
-                    })?;
+                    status_handle
+                        .set_service_status(ServiceStatus::state(ServiceState::StartPending))?;
                 }
                 ServiceControl::Pause => {
-                    status_handle.set_service_status(ServiceStatus {
-                        service_type: SERVICE_TYPE,
-                        current_state: ServiceState::Paused,
-                        controls_accepted: ServiceControlAccept::STOP
-                            | ServiceControlAccept::PAUSE_CONTINUE,
-                        exit_code: ServiceExitCode::Win32(0),
-                        checkpoint: 0,
-                        wait_hint: Duration::default(),
-                        process_id: None,
-                    })?;
+                    status_handle.set_service_status(ServiceStatus::state(ServiceState::Paused))?;
                 }
                 ServiceControl::Stop => {
-                    status_handle.set_service_status(ServiceStatus {
-                        service_type: SERVICE_TYPE,
-                        current_state: ServiceState::StopPending,
-                        controls_accepted: ServiceControlAccept::STOP,
-                        exit_code: ServiceExitCode::Win32(0),
-                        checkpoint: 1,
-                        wait_hint: Duration::from_secs(5),
-                        process_id: None,
-                    })?;
+                    status_handle
+                        .set_service_status(ServiceStatus::state(ServiceState::StopPending))?;
 
                     need_exit.store(true, Ordering::Relaxed);
 
@@ -180,15 +158,8 @@ fn run_main_loop(
                         thread::sleep(Duration::from_millis(100));
                     }
 
-                    status_handle.set_service_status(ServiceStatus {
-                        service_type: SERVICE_TYPE,
-                        current_state: ServiceState::Stopped,
-                        controls_accepted: ServiceControlAccept::STOP,
-                        exit_code: ServiceExitCode::Win32(0),
-                        checkpoint: 2,
-                        wait_hint: Duration::default(),
-                        process_id: None,
-                    })?;
+                    status_handle
+                        .set_service_status(ServiceStatus::state(ServiceState::Stopped))?;
 
                     log!("Service stopped");
                 }
