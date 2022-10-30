@@ -39,6 +39,8 @@ pub fn my_service_main(_arguments: Vec<OsString>) {
 }
 
 pub fn run_service() -> Result<()> {
+    log("Starting service");
+
     // Канал (видимо типа nio в жаббе), чтобы иметь возможность опросить событие остановки из цикла сервисного работника.
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
 
@@ -121,6 +123,20 @@ fn run_main_loop(
     let need_exit = Arc::new(AtomicBool::new(false));
     let threads = run_processes(list, &need_exit);
 
+    let mut child_service1 = super::control::ServiceControl::new(proc_config::APACHE_SERVICE_NAME);
+    if let Ok(proc) = child_service1.as_mut() {
+        log(&format!("Starting {}", proc.name));
+        proc.start()?;
+    }
+
+    let mut child_service2 = super::control::ServiceControl::new(proc_config::MYSQL_SERVICE_NAME);
+    if let Ok(proc) = child_service2.as_mut() {
+        log(&format!("Starting {}", proc.name));
+        proc.start()?;
+    }
+
+    log("Service started");
+    
     loop {
         match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(var) => match var {
@@ -160,13 +176,22 @@ fn run_main_loop(
                         process_id: None,
                     })?;
 
-                    need_exit.store(true, Ordering::Relaxed);
+                    log("Stopping service");
+                    if let Ok(proc) = child_service1.as_mut() {
+                        log(&format!("Stopping {}", proc.name));
+                        proc.stop()?;
+                    }
+                    if let Ok(proc) = child_service2.as_mut() {
+                        log(&format!("Stopping {}", proc.name));
+                        proc.stop()?;
+                    }
 
+                    need_exit.store(true, Ordering::Relaxed);
+                    
                     Command::new(&NGINX_PATH)
                         .args(&NGINX_STOP_ARGS)
                         .current_dir(&NGINX_CWD)
-                        .spawn()
-                        .unwrap();
+                        .spawn().ok();
 
                     while !threads.iter().all(|t| t.is_finished()) {
                         thread::sleep(Duration::from_millis(100));
@@ -181,6 +206,8 @@ fn run_main_loop(
                         wait_hint: Duration::default(),
                         process_id: None,
                     })?;
+
+                    log("Service stopped");
                 }
                 _ => (),
             },

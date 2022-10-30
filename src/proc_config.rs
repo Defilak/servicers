@@ -2,7 +2,6 @@ use super::logger::log;
 use serde::{self, Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
-use std::path::Path;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
@@ -11,8 +10,8 @@ pub const NGINX_PATH: &str = "C:/nginx/nginx.exe";
 pub const NGINX_STOP_ARGS:[&str; 2] = ["-s", "stop"];
 pub const NGINX_CWD: &str = "C:/nginx";
 
-pub const APACHE_SERVICE_NAME: &str = "APPRO_Apache24";
-pub const MYSQL_SERVICE_NAME: &str = "APPRO_MySQL57";
+pub const APACHE_SERVICE_NAME: &str = "APPRO_Apache";
+pub const MYSQL_SERVICE_NAME: &str = "APPRO_MySQL";
 
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,7 +96,10 @@ pub fn load() -> Vec<ProcessConfig> {
 fn save(cfg: Vec<&ProcessConfig>) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(&cfg)?;
 
-    File::create("servicers.json")?.write_all(&text.as_bytes())?;
+    let mut file_path = std::env::current_exe().unwrap();
+    file_path.pop();
+    file_path.push("servicers.json");
+    File::create(file_path)?.write_all(&text.as_bytes())?;
 
     Ok(())
 }

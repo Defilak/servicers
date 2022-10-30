@@ -54,7 +54,6 @@ impl ChildProcess {
     pub fn start(&mut self) {
         self.child = match self.config.spawn_new() {
             Ok(child) => {
-                dbg!(&child);
                 Some(child)
             }
             Err(err) => {

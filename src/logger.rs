@@ -16,7 +16,7 @@ pub fn log<T: Display + ?Sized>(message: &T) {
 
         let mut file_path = std::env::current_exe().unwrap();
         file_path.pop();
-        file_path.push("servicers.json");
+        file_path.push("servicers.log");
 
         let mut file = OpenOptions::new()
             .write(true)

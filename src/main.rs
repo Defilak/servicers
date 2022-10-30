@@ -54,6 +54,13 @@ fn main() -> windows_service::Result<()> {
             }
             _ => Ok(()),
         },
-        None => Ok(()),
+        None => {
+
+            let mut child_service1 = control::ServiceControl::new("GoodbyeDPI").unwrap();
+            child_service1.stop()?;
+
+
+            Ok(())
+        },
     }
 }
