@@ -108,7 +108,7 @@ pub fn run_services(
 
         threads.push(thread::spawn(move || {
             match serv.start() {
-                Ok(_) => log!("{} started", &serv.name),
+                Ok(_) => log!("{:?} started", &serv.name),
                 Err(err) => log!("{:?}", &err),
             };
 
@@ -116,7 +116,7 @@ pub fn run_services(
                 if exit_flag.load(Ordering::Relaxed) == true {
                     log!("Stopping: {:?}", &serv.name);
                     match serv.stop() {
-                        Ok(_) => log!("{} stopped", &serv.name),
+                        Ok(_) => log!("{:?} stopped", &serv.name),
                         Err(err) => log!("{:?}", &err),
                     };
                     break;
@@ -126,17 +126,17 @@ pub fn run_services(
                     Ok(status) => {
                         if status.current_state != ServiceState::Running {
                             log!(
-                                "Restarting service {}: {:?}",
+                                "Restarting service {:?}: {:?}",
                                 &serv.name,
                                 status.current_state
                             );
                             match serv.start() {
-                                Ok(()) => log!("Service {} restarted", &serv.name),
-                                Err(err) => log!("Can't restart service {}: {}", &serv.name, err),
+                                Ok(()) => log!("Service {:?} restarted", &serv.name),
+                                Err(err) => log!("Can't restart service {:?}: {}", &serv.name, err),
                             };
                         }
                     }
-                    Err(err) => log!("Can't get status for service {}: {}", &serv.name, err),
+                    Err(err) => log!("Can't get status for service {:?}: {}", &serv.name, err),
                 };
 
                 thread::sleep(Duration::from_millis(100));

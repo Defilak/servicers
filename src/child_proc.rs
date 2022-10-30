@@ -55,7 +55,7 @@ impl ChildProcess {
         self.child = match self.config.spawn_new() {
             Ok(child) => Some(child),
             Err(err) => {
-                log!("{:?}", &err);
+                log!("Can't start {:?}: {:?}", &self.config, &err);
                 None
             }
         };
@@ -142,7 +142,6 @@ pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Ve
 
     threads
 }
-
 
 #[test]
 fn test_run() {
