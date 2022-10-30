@@ -48,7 +48,7 @@ pub fn load() -> Vec<ProcessConfig> {
         create_default();
     }
 
-    let vec: Vec<ProcessConfig> = match File::open(file_path) {
+    let mut vec: Vec<ProcessConfig> = match File::open(file_path) {
         Ok(file) => {
             let mut reader = BufReader::new(file);
 
@@ -64,19 +64,20 @@ pub fn load() -> Vec<ProcessConfig> {
         }
     };
 
+    vec.push(ProcessConfig {
+        program: "C:/nginx/nginx.exe".to_string(),
+        args: vec![],
+        cwd: "C:/nginx".to_string(),
+        state: ProcessConfigState::Enabled,
+    });
+    vec.push(ProcessConfig {
+        program: "C:/php/8.1.8/php-cgi.exe".to_string(),
+        args: vec!["-b".to_string(), "localhost:9123".to_string()],
+        cwd: "C:/nginx/html".to_string(),
+        state: ProcessConfigState::Enabled,
+    });
+
     vec
-    /*vec![
-        ProcessConfig {
-            program: "C:/nginx/nginx.exe",
-            args: vec![],
-            cwd: "C:/nginx",
-        },
-        ProcessConfig {
-            program: "C:/php/8.1.8/php-cgi.exe",
-            args: vec!["-b", "localhost:9123"],
-            cwd: "C:/nginx/html",
-        },
-    ]*/
 }
 
 fn save(cfg: Vec<&ProcessConfig>) -> std::io::Result<()> {

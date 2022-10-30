@@ -1,13 +1,14 @@
-use std::env;
 use crate::child_proc::ChildProcess;
+use crate::logger::log;
+use std::env;
 use std::sync::atomic::AtomicBool;
 
-mod logger;
-mod tests;
 mod child_proc;
 mod control;
+mod logger;
 mod monitor_service;
 mod proc_config;
+mod tests;
 
 pub const SERVICE_NAME: &str = "servicers";
 
@@ -41,8 +42,15 @@ fn main() -> windows_service::Result<()> {
                 monitor_service::run_processes(list, &need_exit_flag);
                 loop {}
             }
+            "runservice" => {
+                match monitor_service::run() {
+                    Err(err) => log(&err),
+                    _ => ()
+                }
+                Ok(())
+            }
             _ => Ok(()),
         },
-        None => monitor_service::run(),
+        None => Ok(()),
     }
 }
