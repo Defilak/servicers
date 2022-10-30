@@ -14,6 +14,11 @@ use windows_service::{
 const SERVICE_DISPLAY_NAME: &str = "A1 Супервизор АП-ПРО";
 const SERVICE_DESC: &str = "Контроль сервисов АП";
 
+struct WinService {
+    request_access: ServiceManagerAccess,
+    service_access: ServiceAccess
+}
+
 pub fn get_service(
     request_access: ServiceManagerAccess,
     service_access: ServiceAccess,

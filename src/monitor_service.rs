@@ -1,14 +1,10 @@
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
-use std::{
-    ffi::OsString,
-    sync::mpsc,
-    time::Duration,
-};
+use std::{ffi::OsString, sync::mpsc, time::Duration};
 use windows_service::{
     define_windows_service,
     service::{
@@ -20,9 +16,9 @@ use windows_service::{
 };
 
 use crate::child_proc::ChildProcess;
-use crate::proc_config;
-use std::io::Write;
+use crate::proc_config::{self, ProcessConfig};
 use std::env::current_dir;
+use std::io::Write;
 
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
@@ -95,10 +91,10 @@ pub fn run_service() -> Result<()> {
         Err(err) => {
             let file = File::create(current_dir().unwrap().join("errors.log"));
             match file.unwrap().write(err.to_string().as_bytes()) {
-                _ => panic!("pizdec!")
+                _ => panic!("pizdec!"),
             }
-        },
-        Ok(_e) => ()
+        }
+        Ok(_e) => (),
     };
 
     // Tell the system that service has stopped.
@@ -196,6 +192,32 @@ fn run_main_loop(
     Ok(())
 }
 
+pub fn run_processes1(mut list: Vec<ChildProcess>) {
+    for proc in &mut list {
+        proc.start();
+    }
+
+    loop {
+        for proc in &mut list {
+            if proc.config.is_valid() {
+                proc.try_restart();
+            }
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn test_run() {
+    let mut list = Vec::<ChildProcess>::new();
+    for cfg in proc_config::load() {
+
+        list.push(ChildProcess::from_config(cfg));
+    }
+
+    run_processes1(list);
+}
 
 pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Vec<JoinHandle<()>> {
     let mut threads = Vec::<JoinHandle<()>>::new();

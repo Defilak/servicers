@@ -1,8 +1,9 @@
 use crate::proc_config::{ProcessConfig, ProcessConfigState};
+use crate::logger::log;
 use std::process::Child;
 
 pub struct ChildProcess {
-    config: ProcessConfig,
+    pub config: ProcessConfig,
     child: Option<Child>,
 }
 
@@ -34,6 +35,22 @@ impl ChildProcess {
             }
             Err(err) => panic!("{:?}", err),
         };
+    }
+
+    pub fn start_restart_loop(&mut self) {
+        self.start();
+
+        loop {
+            match self.child.as_mut().unwrap().wait() {
+                Ok(e) => {
+                    log(&e);
+                },
+                Err(e) => {
+                    log(&e);
+                }
+            }
+            self.start();
+        }
     }
 
     pub fn try_restart(&mut self) {

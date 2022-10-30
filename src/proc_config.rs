@@ -7,7 +7,7 @@ use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ProcessConfigState {
     Enabled,
@@ -30,6 +30,10 @@ impl ProcessConfig {
             cwd: cwd,
             state: ProcessConfigState::Enabled,
         }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.program.len() > 0 && self.state == ProcessConfigState::Disabled
     }
 
     pub fn spawn_new(&self) -> Result<Child, std::io::Error> {
