@@ -1,7 +1,11 @@
 [package]
-name = "servicers"
-version = "0.1.0"
 edition = "2021"
+
+name = "servicers"
+description = "Appro service"
+version = "0.1.0"
+license = "Copyright © 2022"
+
 build = "build.rs"
 
 [dependencies]
@@ -29,9 +33,3 @@ features = [
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
-
-[package.metadata.winres]
-OriginalFilename = "servicers.exe"
-FileDescription = "Appro service"
-LegalCopyright = "Copyright © 2022"
-ProductVersion = "0.1.0"
