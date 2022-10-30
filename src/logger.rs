@@ -1,5 +1,4 @@
 use chrono::Utc;
-use core::fmt::Debug;
 use core::fmt::Display;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
@@ -7,7 +6,7 @@ use std::sync::Mutex;
 
 static WRITE_CHECK: Mutex<bool> = Mutex::new(true);
 
-pub fn log<T: Display + ?Sized>(message: &T) {
+pub fn log_write<T: Display + ?Sized>(message: &T) {
     println!("{}", &message);
 
     let mut num = WRITE_CHECK.lock().unwrap();
@@ -31,3 +30,14 @@ pub fn log<T: Display + ?Sized>(message: &T) {
         *num = true;
     }
 }
+
+macro_rules! log {
+    () => {};
+    ($($arg:tt)*) => {{
+        use crate::logger::log_write;
+        let text = format!($($arg)*);
+        log_write(&text);
+    }};
+}
+
+pub(crate) use log;

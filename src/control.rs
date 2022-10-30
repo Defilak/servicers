@@ -6,7 +6,7 @@ use std::{
 use windows_service::{
     service::{
         Service, ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState,
-        ServiceType,
+        ServiceType, ServiceStatus,
     },
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
@@ -14,22 +14,24 @@ use windows_service::{
 const SERVICE_DISPLAY_NAME: &str = "A1 Супервизор АП-ПРО";
 const SERVICE_DESC: &str = "Контроль сервисов АП";
 
-pub struct ServiceControl {
+pub struct ChildServiceControl {
     pub name: String,
     _request_access: ServiceManagerAccess,
     _service_access: ServiceAccess,
     service: Service,
 }
 
-impl ServiceControl {
-    pub fn new(name: &str) -> windows_service::Result<ServiceControl> {
+impl ChildServiceControl {
+    pub fn new(name: &str) -> windows_service::Result<ChildServiceControl> {
         let service_manager =
             ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).unwrap();
-        let service_access =
-            ServiceAccess::QUERY_STATUS | ServiceAccess::START | ServiceAccess::STOP;
+        let service_access = ServiceAccess::QUERY_STATUS
+            | ServiceAccess::START
+            | ServiceAccess::STOP
+            | ServiceAccess::PAUSE_CONTINUE;
         let service = service_manager.open_service(name, service_access)?;
 
-        Ok(ServiceControl {
+        Ok(ChildServiceControl {
             name: name.to_string(),
             _request_access: ServiceManagerAccess::CONNECT,
             _service_access: service_access,
@@ -58,36 +60,27 @@ impl ServiceControl {
     }
 
     pub fn pause(&mut self) -> windows_service::Result<()> {
-        let service = get_service(ServiceManagerAccess::CONNECT, ServiceAccess::PAUSE_CONTINUE)?;
-
-        let service_status = service.query_status()?;
+        let service_status = self.service.query_status()?;
         if service_status.current_state != ServiceState::Paused {
-            service.pause()?;
+            self.service.pause()?;
             thread::sleep(Duration::from_secs(1));
         }
 
         Ok(())
     }
 
-    pub fn resume() -> windows_service::Result<()> {
-        let service = get_service(ServiceManagerAccess::CONNECT, ServiceAccess::PAUSE_CONTINUE)?;
-
-        let service_status = service.query_status()?;
+    pub fn resume(&mut self) -> windows_service::Result<()> {
+        let service_status = self.service.query_status()?;
         if service_status.current_state != ServiceState::Running {
-            service.resume()?;
+            self.service.resume()?;
             thread::sleep(Duration::from_secs(1));
         }
 
         Ok(())
     }
 
-    pub fn status() -> windows_service::Result<()> {
-        let service = get_service(ServiceManagerAccess::CONNECT, ServiceAccess::INTERROGATE)?;
-
-        let service_status = service.query_status()?;
-        println!("{:?}", service_status);
-
-        Ok(())
+    pub fn status(&mut self) -> windows_service::Result<ServiceStatus> {
+        self.service.query_status()
     }
 }
 

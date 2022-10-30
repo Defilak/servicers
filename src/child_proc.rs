@@ -1,5 +1,5 @@
 use crate::logger::log;
-use crate::proc_config::{self, *};
+use crate::proc_config::*;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -57,7 +57,7 @@ impl ChildProcess {
                 Some(child)
             }
             Err(err) => {
-                log(&err);
+                log!("{:?}", &err);
                 None
             }
         };
@@ -69,10 +69,10 @@ impl ChildProcess {
         loop {
             match self.child.as_mut().unwrap().wait() {
                 Ok(e) => {
-                    log(&e);
+                    log!("{:?}", &e);
                 }
                 Err(e) => {
-                    log(&e);
+                    log!("{:?}", &e);
                 }
             }
             self.start();
@@ -117,23 +117,23 @@ pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Ve
 
         threads.push(thread::spawn(move || {
             if !proc.config.is_valid() {
-                log(&format!("Invalid config: {:?}", &proc.config));
+                log!("Invalid config: {:?}", &proc.config);
                 return;
             }
 
-            log(&format!("Starting: {:?}", &proc.config));
+            log!("Starting: {:?}", &proc.config);
             proc.start();
 
             loop {
                 if exit_flag.load(Ordering::Relaxed) == true {
-                    log(&format!("Killing: {:?}", &proc.config));
+                    log!("Killing: {:?}", &proc.config);
                     proc.kill();
                     break;
                 }
 
                 if proc.config.is_valid() {
                     if proc.try_restart() {
-                        log(&format!("Restarting: {:?}", &proc.config));
+                        log!("Restarting: {:?}", &proc.config);
                     }
                 }
 

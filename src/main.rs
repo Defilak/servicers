@@ -1,6 +1,11 @@
-use crate::child_proc::{ChildProcess,run_processes};
+use crate::child_proc::{run_processes, ChildProcess};
 use crate::logger::log;
 use std::env;
+use std::{
+    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    thread::{self, JoinHandle},
+    time::Duration,
+};
 
 mod child_proc;
 mod control;
@@ -18,7 +23,10 @@ pub fn main() {
 
 #[cfg(windows)]
 fn main() -> windows_service::Result<()> {
-    use std::{sync::{Arc, Mutex, atomic::AtomicBool}, time::Duration, thread};
+
+    use windows_service::service::ServiceState;
+
+    use crate::control::ChildServiceControl;
 
     let args: Vec<String> = env::args().collect();
 
@@ -30,7 +38,11 @@ fn main() -> windows_service::Result<()> {
             "stop" => control::stop(),
             "pause" => control::pause(),
             "resume" => control::resume(),
-            "status" => control::status(),
+            "status" => {
+                let stat = control::status();
+                println!("{:?}", stat);
+                stat
+            }
             "run" => {
                 let mut list = Vec::<ChildProcess>::new();
                 for cfg in proc_config::load() {
@@ -39,28 +51,69 @@ fn main() -> windows_service::Result<()> {
 
                 let need_exit = Arc::new(AtomicBool::new(false));
                 let threads = run_processes(list, &need_exit);
-                
+
                 while !threads.iter().all(|t| t.is_finished()) {
                     thread::sleep(Duration::from_millis(100));
-                };
+                }
                 Ok(())
             }
             "runservice" => {
                 match monitor_service::run() {
-                    Err(err) => log(&err),
-                    _ => ()
+                    Err(err) => log!("{:?}",&err),
+                    _ => (),
                 }
                 Ok(())
             }
             _ => Ok(()),
         },
         None => {
+            let mut threads = Vec::<JoinHandle<()>>::new();
+            let need_exit = Arc::new(AtomicBool::new(false));
+            let child_service1 = ChildServiceControl::new(proc_config::APACHE_SERVICE_NAME);
+            if child_service1.is_ok() {
+                let mut proc = child_service1.unwrap();
+                let exit_flag = need_exit.clone();
 
-            let mut child_service1 = control::ServiceControl::new("GoodbyeDPI").unwrap();
-            child_service1.stop()?;
+                log!("Starting {}", proc.name);
 
+                threads.push(thread::spawn(move || {
+                    match proc.start() {
+                        Ok(_) => log!("{} started", &proc.name),
+                        Err(err) => log!("{:?}",&err),
+                    };
+
+                    loop {
+                        if exit_flag.load(Ordering::Relaxed) == true {
+                            log!("Stopping: {:?}", &proc.name);
+                            match proc.stop() {
+                                Ok(_) => log!("{} stopped", &proc.name),
+                                Err(err) => log!("{:?}", &err),
+                            };
+                            break;
+                        }
+
+                        match proc.status() {
+                            Ok(status) => {
+                                if status.current_state != ServiceState::Running {
+                                    log!("Restarting service {}: {:?}", &proc.name, status.current_state);
+                                    match proc.start() {
+                                        Ok(()) => log!("Service {} restarted",&proc.name),
+                                        Err(err) => log!("Can't restart service {}: {}", &proc.name, err)
+                                    };
+                                }
+                            },
+                            Err(err) => log!("Can't get status for service {}: {}", &proc.name, err)
+                        };
+
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                }));
+            }
+            while !threads.iter().all(|t| t.is_finished()) {
+                thread::sleep(Duration::from_millis(100));
+            }
 
             Ok(())
-        },
+        }
     }
 }

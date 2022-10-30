@@ -17,6 +17,7 @@ use windows_service::{
 use crate::child_proc::{ChildProcess,run_processes};
 use crate::logger::log;
 use crate::proc_config::{self,*};
+use crate::control::ChildServiceControl;
 
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
@@ -39,7 +40,7 @@ pub fn my_service_main(_arguments: Vec<OsString>) {
 }
 
 pub fn run_service() -> Result<()> {
-    log("Starting service");
+    log!("Starting service");
 
     // Канал (видимо типа nio в жаббе), чтобы иметь возможность опросить событие остановки из цикла сервисного работника.
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
@@ -89,7 +90,7 @@ pub fn run_service() -> Result<()> {
 
     match run_main_loop(status_handle, shutdown_rx) {
         Err(err) => {
-            log(&err);
+            log!("{:?}",&err);
         }
         Ok(_e) => (),
     };
@@ -121,21 +122,54 @@ fn run_main_loop(
     // Видимо, подразумевается что он безопасно чистит память при выходе из блока. Интересно как.
     // От родителя к потомку - Arc, обратно Weak. Написано, что иначе память потечет.
     let need_exit = Arc::new(AtomicBool::new(false));
-    let threads = run_processes(list, &need_exit);
+    let mut threads = run_processes(list, &need_exit);
 
-    let mut child_service1 = super::control::ServiceControl::new(proc_config::APACHE_SERVICE_NAME);
-    if let Ok(proc) = child_service1.as_mut() {
-        log(&format!("Starting {}", proc.name));
-        proc.start()?;
+    let child_service1 = ChildServiceControl::new(proc_config::APACHE_SERVICE_NAME);
+    if child_service1.is_ok() {
+        let mut proc = child_service1.unwrap();
+        let exit_flag = need_exit.clone();
+
+        log!("Starting {}", proc.name);
+
+        threads.push(thread::spawn(move || {
+            match proc.start() {
+                Ok(_) => log!("{} started", &proc.name),
+                Err(err) => log!("{:?}",&err)
+            };
+
+            loop {
+                if exit_flag.load(Ordering::Relaxed) == true {
+                    log!("Stopping: {:?}", &proc.name);
+                    match proc.stop() {
+                        Ok(_) => log!("{} stopped", &proc.name),
+                        Err(err) => log!("{:?}",&err)
+                    };
+                    break;
+                }
+
+                let status = proc.status();
+                dbg!(&status);
+                
+                thread::sleep(Duration::from_millis(100));
+            }
+        }));
     }
 
-    let mut child_service2 = super::control::ServiceControl::new(proc_config::MYSQL_SERVICE_NAME);
+    let mut child_service2 = ChildServiceControl::new(proc_config::MYSQL_SERVICE_NAME);
     if let Ok(proc) = child_service2.as_mut() {
-        log(&format!("Starting {}", proc.name));
+        log!("Starting {}", proc.name);
         proc.start()?;
     }
 
-    log("Service started");
+    threads.push(thread::spawn(|| {
+        loop {
+            
+            thread::sleep(Duration::from_millis(100));
+        }
+    }));
+
+
+    log!("Service started");
     
     loop {
         match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
@@ -176,15 +210,14 @@ fn run_main_loop(
                         process_id: None,
                     })?;
 
-                    log("Stopping service");
-                    if let Ok(proc) = child_service1.as_mut() {
-                        log(&format!("Stopping {}", proc.name));
+                    /*if let Ok(proc) = child_service1.as_mut() {
+                        log!("Stopping {}", proc.name));
                         proc.stop()?;
                     }
                     if let Ok(proc) = child_service2.as_mut() {
-                        log(&format!("Stopping {}", proc.name));
+                        log!("Stopping {}", proc.name));
                         proc.stop()?;
-                    }
+                    }*/
 
                     need_exit.store(true, Ordering::Relaxed);
                     
@@ -207,7 +240,7 @@ fn run_main_loop(
                         process_id: None,
                     })?;
 
-                    log("Service stopped");
+                    log!("Service stopped");
                 }
                 _ => (),
             },
