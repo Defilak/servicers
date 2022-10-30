@@ -76,9 +76,9 @@ pub fn load() -> Vec<ProcessConfig> {
     };
 
     vec.push(ProcessConfig {
-        program: "C:/nginx/nginx.exe".to_string(),
+        program: NGINX_PATH.to_string(),
         args: vec![],
-        cwd: "C:/nginx".to_string(),
+        cwd: NGINX_CWD.to_string(),
         state: ProcessConfigState::Enabled,
         pid: 0,
     });

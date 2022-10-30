@@ -21,8 +21,16 @@ pub fn log_write<T: Display + ?Sized>(message: &T) {
             .write(true)
             .append(true)
             .create(true)
-            .open(file_path)
+            .open(&file_path)
             .unwrap();
+        if file.metadata().unwrap().len() > 10240 { //10mb
+            file = OpenOptions::new()
+            .write(true)
+            .append(false)
+            .create(true)
+            .open(&file_path)
+            .unwrap();
+        }
 
         let time = Utc::now().format("%F %T").to_string();
 

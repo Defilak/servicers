@@ -1,6 +1,6 @@
 use crate::logger::log;
 use crate::proc_config::*;
-use std::process::Child;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -19,7 +19,7 @@ impl ChildProcess {
                 args: args,
                 cwd: workdir,
                 state: ProcessConfigState::Enabled,
-                pid: 0
+                pid: 0,
             },
             child: None,
         }
@@ -57,7 +57,7 @@ impl ChildProcess {
             Ok(child) => {
                 self.config.pid = child.id();
                 Some(child)
-            },
+            }
             Err(err) => {
                 log!("Can't start {:?}: {:?}", &self.config, &err);
                 None
@@ -124,6 +124,14 @@ pub fn run_processes(list: Vec<ChildProcess>, exit_flag: &Arc<AtomicBool>) -> Ve
             }
 
             log!("Starting: {:?}", &proc.config);
+
+            /*if proc.config.program.contains("nginx") {
+                Command::new(&NGINX_PATH)
+                    .args(&NGINX_STOP_ARGS)
+                    .current_dir(&NGINX_CWD)
+                    .spawn()
+                    .ok();
+            }*/
             proc.start();
 
             loop {
